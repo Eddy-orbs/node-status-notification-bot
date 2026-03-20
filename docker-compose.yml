@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    container_name: node-status-notification-bot
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
