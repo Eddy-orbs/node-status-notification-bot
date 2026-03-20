@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import Application, CommandHandler
 
 from app.bot_handlers import (
+    monitor_all_command,
     resume_command,
     set_command,
     start_command,
@@ -77,6 +78,7 @@ def run() -> None:
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("resume", resume_command))
+    application.add_handler(CommandHandler("monitorAll", monitor_all_command))
 
     application.run_polling(drop_pending_updates=True)
 

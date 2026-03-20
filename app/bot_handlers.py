@@ -5,8 +5,8 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.models import STATUS_UNKNOWN, is_valid_normalized_address, normalize_address
-from app.monitor_service import extract_boyar_status, fetch_status_json
+from app.models import MODE_MANAGER_ALL, STATUS_UNKNOWN, is_valid_normalized_address, normalize_address
+from app.monitor_service import extract_all_node_statuses, extract_boyar_status, fetch_status_json
 from app.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "/set address 0x1234...\n\n"
         "Check current status:\n"
         "/status\n\n"
+        "All-node monitoring (manager):\n"
+        "/monitorAll on|off\n\n"
         "Resume monitoring:\n"
         "/resume\n\n"
         "Stop monitoring:\n"
@@ -137,6 +139,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     storage: Storage = context.application.bot_data["storage"]
 
     try:
+        user = storage.get_user_by_chat_id(update.effective_chat.id)
         changed = storage.stop_monitoring(update.effective_chat.id)
     except Exception as exc:
         logger.exception("Failed to stop monitoring: %s", exc)
@@ -147,6 +150,16 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if changed:
+        if user is not None and user.monitoring_mode == MODE_MANAGER_ALL:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=(
+                    "Monitoring has been stopped.\n\n"
+                    "Current mode: All Nodes\n"
+                    "Use /resume to start again."
+                ),
+            )
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="Monitoring has been stopped.",
@@ -179,16 +192,29 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if user is None:
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Address: (not set)\nMonitoring: OFF",
+            text="Monitoring Mode: Not Set\nMonitoring: OFF",
         )
         return
 
+    mode_label = "All Nodes" if user.monitoring_mode == MODE_MANAGER_ALL else "Single Address"
     monitoring_label = "ON" if user.monitoring_enabled else "OFF"
     last_status = "N/A" if not user.last_status or user.last_status == STATUS_UNKNOWN else user.last_status
     display_address = f"0x{user.address}" if user.address else "(not set)"
+
+    if user.monitoring_mode == MODE_MANAGER_ALL:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"Monitoring Mode: {mode_label}\n"
+                f"Monitoring: {monitoring_label}"
+            ),
+        )
+        return
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
+            f"Monitoring Mode: {mode_label}\n"
             f"Address: {display_address}\n"
             f"Monitoring: {monitoring_label}\n"
             f"Last Status: {last_status}"
@@ -214,10 +240,52 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    if user is None or not user.address:
+    if user is None:
         await context.bot.send_message(
             chat_id=chat_id,
-            text="No registered address found. Please register first with /set address 0x...",
+            text="No address is registered.\nPlease use /set address 0x... first.",
+        )
+        return
+
+    if user.monitoring_mode == MODE_MANAGER_ALL:
+        payload = await fetch_status_json(status_json_url)
+        if payload is None:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Unable to fetch current status data. Please try again later.",
+            )
+            return
+
+        states = extract_all_node_statuses(payload)
+        try:
+            storage.enable_manager_monitoring(
+                telegram_chat_id=chat_id,
+                telegram_user_id=update.effective_user.id if update.effective_user else user.telegram_user_id,
+                username=update.effective_user.username if update.effective_user else user.username,
+                baseline_states=states,
+            )
+        except Exception as exc:
+            logger.exception("Failed to resume manager monitoring for chat_id=%s: %s", chat_id, exc)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="An error occurred while resuming monitoring. Please try again in a moment.",
+            )
+            return
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "All-node monitoring has been resumed.\n\n"
+                "Current node states have been saved as baseline.\n"
+                "You will be notified when any Boyar status changes from Green to Yellow."
+            ),
+        )
+        return
+
+    if not user.address:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="No address is registered.\nPlease use /set address 0x... first.",
         )
         return
 
@@ -272,5 +340,160 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "Monitoring has resumed.\n"
             f"Current Node status: {baseline_status}\n"
             "(This status will be used as the baseline for change detection.)"
+        ),
+    )
+
+
+async def monitor_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat is None or update.effective_user is None:
+        return
+
+    storage: Storage = context.application.bot_data["storage"]
+    status_json_url: str = context.application.bot_data["status_json_url"]
+    chat_id = update.effective_chat.id
+
+    args = context.args
+    if len(args) != 1 or args[0].lower() not in ("on", "off"):
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Usage: /monitorAll on|off",
+        )
+        return
+
+    sub = args[0].lower()
+
+    if sub == "on":
+        payload = await fetch_status_json(status_json_url)
+        if payload is None:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Unable to fetch current status data. Please try again later.",
+            )
+            return
+
+        states = extract_all_node_statuses(payload)
+        try:
+            storage.enable_manager_monitoring(
+                telegram_chat_id=chat_id,
+                telegram_user_id=update.effective_user.id,
+                username=update.effective_user.username,
+                baseline_states=states,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to enable all-node monitoring for chat_id=%s: %s", chat_id, exc
+            )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="An error occurred while enabling all-node monitoring. Please try again in a moment.",
+            )
+            return
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "All-node monitoring has been enabled.\n\n"
+                "Current node states have been saved as baseline.\n"
+                "You will be notified when any Boyar status changes from Green to Yellow."
+            ),
+        )
+        return
+
+    # sub == "off"
+    try:
+        user = storage.get_user_by_chat_id(chat_id)
+    except Exception as exc:
+        logger.exception("Failed to load user for /monitorAll off chat_id=%s: %s", chat_id, exc)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="An error occurred. Please try again in a moment.",
+        )
+        return
+
+    if user is None or user.monitoring_mode != MODE_MANAGER_ALL:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="All-node monitoring is not active.",
+        )
+        return
+
+    payload = await fetch_status_json(status_json_url)
+    if payload is None:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Unable to fetch current status data. Please try again later.",
+        )
+        return
+
+    saved_address = (user.address or "").strip()
+    if not saved_address:
+        try:
+            storage.disable_manager_monitoring(
+                chat_id, activate_single=False, single_baseline=None
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to disable manager monitoring for chat_id=%s: %s", chat_id, exc
+            )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="An error occurred. Please try again in a moment.",
+            )
+            return
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "All-node monitoring has been disabled.\n\n"
+                "No single address is registered.\n"
+                "Monitoring is currently OFF."
+            ),
+        )
+        return
+
+    if not _address_exists_in_registered_nodes(payload, saved_address):
+        try:
+            storage.disable_manager_monitoring(
+                chat_id, activate_single=False, single_baseline=None
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to disable manager monitoring for chat_id=%s: %s", chat_id, exc
+            )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="An error occurred. Please try again in a moment.",
+            )
+            return
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "All-node monitoring has been disabled.\n\n"
+                "Your saved address was not found in the current Orbs status data.\n"
+                "Single-address monitoring remains OFF."
+            ),
+        )
+        return
+
+    baseline = extract_boyar_status(payload, saved_address)
+    try:
+        storage.disable_manager_monitoring(
+            chat_id, activate_single=True, single_baseline=baseline
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to disable manager monitoring for chat_id=%s: %s", chat_id, exc
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="An error occurred. Please try again in a moment.",
+        )
+        return
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "All-node monitoring has been disabled.\n\n"
+            "Single-address monitoring is now active again.\n"
+            f"Current Boyar status: {baseline}"
         ),
     )

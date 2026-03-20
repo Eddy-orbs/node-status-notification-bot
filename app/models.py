@@ -11,6 +11,9 @@ ETH_ADDRESS_KEY_RE = re.compile(r"^[a-f0-9]{40}$")
 STATUS_GREEN = "Green"
 STATUS_YELLOW = "Yellow"
 STATUS_UNKNOWN = "UNKNOWN"
+MODE_SINGLE = "single"
+MODE_MANAGER_ALL = "manager_all"
+MODE_OFF = "off"
 
 
 @dataclass
@@ -21,6 +24,7 @@ class User:
     username: Optional[str]
     address: str
     monitoring_enabled: bool
+    monitoring_mode: str
     last_status: str
     created_at: str
     updated_at: str

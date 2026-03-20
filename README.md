@@ -14,6 +14,9 @@ Python 기반 텔레그램 모니터링 앱입니다. 유저가 등록한 Ethere
 - `/stop`: 해당 유저 모니터링 비활성화
 - `/status`: 현재 등록 주소, 모니터링 ON/OFF, 마지막 상태 조회
 - `/resume`: 기존 등록 주소 기준으로 모니터링 재시작 + baseline 재설정
+- `/monitorAll on|off`:
+  - `on`: AllRegisteredNodes 전체 manager 감시 (single 설정은 DB에 보존, manager가 우선)
+  - `off`: manager 종료 후 저장된 single 주소가 있으면 JSON에 존재할 때만 single 감시 재개
 - 주기 작업:
   - 기본 1800초(30분) 간격으로 실행
   - `STATUS_JSON_URL`을 주기마다 1회만 fetch
@@ -25,7 +28,7 @@ Python 기반 텔레그램 모니터링 앱입니다. 유저가 등록한 Ethere
 ## 프로젝트 구조
 
 - `app/main.py`: 앱 부트스트랩, polling 실행, 스케줄러 등록
-- `app/bot_handlers.py`: `/start`, `/set`, `/stop`, `/status`, `/resume` 핸들러
+- `app/bot_handlers.py`: `/start`, `/set`, `/stop`, `/status`, `/resume`, `/monitorAll` 핸들러
 - `app/monitor_service.py`: JSON fetch + 상태 판독 + 알림 규칙
 - `app/storage.py`: SQLite 스키마/쿼리
 - `app/config.py`: `.env` 로딩 및 설정
