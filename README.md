@@ -1,52 +1,51 @@
 # node-status-notification-bot
 
-Python 기반 텔레그램 모니터링 앱입니다. 유저가 등록한 Ethereum 주소의 `Boyar` 상태를 주기적으로 확인하고, 상태가 `Green -> Yellow`로 변경될 때만 알림을 보냅니다.
+A Python Telegram monitoring bot. It periodically checks the `Boyar` status for registered Ethereum addresses (or, in manager mode, for all nodes) and sends a notification only when a status changes from **Green → Yellow**.
 
-## 기능 요약
+## Features
 
-- `/start`: 봇 소개 및 주소 등록 방법 안내
+- `/start`: Bot introduction and command overview
 - `/set address <ethereum_address>`:
-  - 주소 유효성 검사 (`0x` + 40 hex)
-  - 내부 저장/JSON 조회용 주소는 `0x` 제거 + lowercase normalize
-  - 주소 저장 + 모니터링 활성화
-  - 현재 상태를 baseline(`last_status`)으로 저장
-  - 등록 직후 즉시 알림 없음
-- `/stop`: 해당 유저 모니터링 비활성화
-- `/status`: 현재 등록 주소, 모니터링 ON/OFF, 마지막 상태 조회
-- `/resume`: 기존 등록 주소 기준으로 모니터링 재시작 + baseline 재설정
+  - Validates the address (`0x` + 40 hex characters)
+  - Stores and looks up addresses internally without the `0x` prefix, lowercased
+  - Saves the address and enables monitoring (if the address exists in the current status JSON)
+  - Saves the current status as the baseline (`last_status`)
+  - No alert immediately after registration
+- `/stop`: Disables monitoring for the current user (for whichever mode is active)
+- `/status`: Shows monitoring mode, address (single mode), ON/OFF, and last status where applicable
+- `/resume`: Restarts monitoring for the active mode and resets the baseline from the current JSON (no immediate alert)
 - `/monitorAll on|off`:
-  - `on`: AllRegisteredNodes 전체 manager 감시 (single 설정은 DB에 보존, manager가 우선)
-  - `off`: manager 종료 후 저장된 single 주소가 있으면 JSON에 존재할 때만 single 감시 재개
-- 주기 작업:
-  - 기본 1800초(30분) 간격으로 실행
-  - `STATUS_JSON_URL`을 주기마다 1회만 fetch
-  - 모든 활성 유저에 대해 주소별 상태 판독
-  - `Green -> Yellow`에서만 텔레그램 알림
-  - 그 외 변화는 알림 없이 `last_status` 갱신
-  - 경로 누락/주소 누락은 `UNKNOWN`으로 안전 처리
+  - `on`: Enables manager-style monitoring of all nodes under `AllRegisteredNodes` (single-address settings stay in the DB; manager mode takes priority while on)
+  - `off`: Turns off manager monitoring; if a saved single address exists and is present in the JSON, single-address monitoring resumes
+- Scheduled checks:
+  - Default interval: **1800 seconds (30 minutes)**
+  - Fetches `STATUS_JSON_URL` **once per cycle** and reuses the payload for all active users
+  - **Green → Yellow** transitions trigger Telegram alerts
+  - Other changes update baselines without notifying
+  - Missing paths or addresses are handled safely as `UNKNOWN`
 
-## 프로젝트 구조
+## Project layout
 
-- `app/main.py`: 앱 부트스트랩, polling 실행, 스케줄러 등록
-- `app/bot_handlers.py`: `/start`, `/set`, `/stop`, `/status`, `/resume`, `/monitorAll` 핸들러
-- `app/monitor_service.py`: JSON fetch + 상태 판독 + 알림 규칙
-- `app/storage.py`: SQLite 스키마/쿼리
-- `app/config.py`: `.env` 로딩 및 설정
-- `app/models.py`: 상수/검증 유틸
-- `main.py`: 엔트리포인트
+- `app/main.py`: App bootstrap, polling, scheduler registration
+- `app/bot_handlers.py`: Handlers for `/start`, `/set`, `/stop`, `/status`, `/resume`, `/monitorAll`
+- `app/monitor_service.py`: JSON fetch, status evaluation, alert rules
+- `app/storage.py`: SQLite schema and queries
+- `app/config.py`: `.env` loading and settings
+- `app/models.py`: Constants and validation helpers
+- `main.py`: Entry point
 - `Dockerfile`
 - `docker-compose.yml`
 - `.env.example`
 
-## .env 설정
+## Environment variables
 
-1. 예시 파일 복사:
+1. Copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-2. `.env` 수정:
+2. Edit `.env`:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_real_telegram_bot_token
@@ -56,76 +55,75 @@ SQLITE_DB_PATH=/app/data/app.db
 LOG_LEVEL=INFO
 ```
 
-## 로컬 개발 실행 방법
+## Running locally
 
-> 로컬과 서버 모두 Docker Compose 기준으로 동일하게 실행하는 것을 권장합니다.
+> For consistency between your laptop and server, running with Docker Compose is recommended.
 
 ```bash
 docker compose up --build
 ```
 
-백그라운드 실행:
+Run in the background:
 
 ```bash
 docker compose up -d --build
 ```
 
-로그 확인:
+View logs:
 
 ```bash
 docker compose logs -f app
 ```
 
-중지:
+Stop:
 
 ```bash
 docker compose down
 ```
 
-## Docker Compose 실행 방식
+## Docker Compose behavior
 
-- `app` 컨테이너 1개
-- `.env`를 `env_file`로 주입
-- 호스트 `./data`를 컨테이너 `/app/data`에 마운트
+- Single `app` service
+- Injects variables from `.env` via `env_file`
+- Mounts host `./data` to `/app/data` in the container
 - `restart: unless-stopped`
-- 로그는 stdout/stderr 출력
+- Logs go to stdout/stderr
 
-## 데이터 저장 위치
+## Data storage
 
-- SQLite 파일 경로(컨테이너 내부): `/app/data/app.db`
-- 실제 저장 위치(호스트): `./data/app.db`
-- 컨테이너 재생성 후에도 `./data`가 유지되므로 DB가 보존됩니다.
+- SQLite path inside the container: `/app/data/app.db`
+- On the host: `./data/app.db`
+- The `./data` directory persists across container recreation, so the database is kept
 
-## 서버(Ubuntu) 배포 절차 예시
+## Example deployment (Ubuntu server)
 
 ```bash
-# 1) 서버에 프로젝트 배치
-# git clone 또는 rsync
+# 1) Place the project on the server (e.g. git clone or rsync)
 
-# 2) 환경변수 파일 준비
+# 2) Prepare environment file
 cp .env.example .env
-# .env에서 TELEGRAM_BOT_TOKEN 수정
+# Set TELEGRAM_BOT_TOKEN in .env
 
-# 3) 실행
+# 3) Run
 docker compose up -d --build
 
-# 4) 상태/로그 점검
+# 4) Check status and logs
 docker compose ps
 docker compose logs -f app
 ```
 
-## 자주 쓰는 명령어
+## Common commands
 
 ```bash
-# 컨테이너 재빌드/재시작
+# Rebuild and (re)start containers
 docker compose up -d --build
 
-# 앱 로그 실시간 확인
+# Follow app logs
 docker compose logs -f app
 
-# 앱 중지
+# Stop the stack
 docker compose down
 
-# 앱 재시작
+# Restart only the app container
 docker compose restart app
 ```
