@@ -17,14 +17,14 @@ echo "✓ Git update completed"
 # 2. Build Docker image
 echo ""
 echo "[2/3] Building Docker image..."
-sudo docker-compose build --no-cache
+sudo docker compose build --no-cache
 echo "✓ Docker build completed"
 
 # 3. Restart service
 echo ""
 echo "[3/3] Restarting service..."
-sudo docker-compose down
-sudo docker-compose up -d
+sudo docker compose down
+sudo docker compose up -d
 echo "✓ Service restart completed"
 
 echo ""
@@ -33,4 +33,4 @@ echo "Update completed!"
 echo "=========================================="
 echo ""
 echo "Service status:"
-sudo docker-compose ps
+sudo docker compose ps
