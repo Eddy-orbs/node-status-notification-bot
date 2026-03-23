@@ -73,6 +73,43 @@ def extract_all_node_statuses(payload: dict[str, Any]) -> dict[str, str]:
     return statuses
 
 
+def should_send_alert(last_status: str, current_status: str) -> bool:
+    return (
+        last_status == STATUS_GREEN and current_status == STATUS_YELLOW
+    ) or (
+        last_status == STATUS_YELLOW and current_status == STATUS_GREEN
+    )
+
+
+def build_alert_message(
+    *,
+    address: str,
+    last_status: str,
+    current_status: str,
+    monitoring_mode: str | None = None,
+) -> str:
+    if last_status == STATUS_GREEN and current_status == STATUS_YELLOW:
+        title = "⚠️ Node Status Alert"
+        summary = "Server status changed to Yellow."
+    else:
+        title = "✅ Node Status Recovered"
+        summary = "Server status recovered to Green."
+
+    lines = [title, "", summary]
+    if monitoring_mode is not None:
+        lines.extend(["", f"Monitoring Mode: {monitoring_mode}"])
+    lines.extend(
+        [
+            f"Address: 0x{address}",
+            f"Status Change: {last_status} → {current_status}",
+            "",
+            "Check status:",
+            "https://status.orbs.network",
+        ]
+    )
+    return "\n".join(lines)
+
+
 async def fetch_status_json(url: str) -> dict[str, Any] | None:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -110,19 +147,14 @@ async def run_monitoring_cycle(storage: Storage, bot: Bot, status_json_url: str)
                     if send_aborted_user_blocked:
                         break
                     last_status = previous_states.get(node_address, STATUS_UNKNOWN)
-                    should_alert = (
-                        last_status == STATUS_GREEN and current_status == STATUS_YELLOW
-                    )
-                    if not should_alert:
+                    if not should_send_alert(last_status, current_status):
                         continue
 
-                    message = (
-                        "⚠️ Boyar Status Alert\n\n"
-                        "Monitoring Mode: All Nodes\n"
-                        f"Address: 0x{node_address}\n"
-                        f"Status Change: {last_status} → {current_status}\n\n"
-                        "Check status:\n"
-                        "https://status.orbs.network"
+                    message = build_alert_message(
+                        address=node_address,
+                        last_status=last_status,
+                        current_status=current_status,
+                        monitoring_mode="All Nodes",
                     )
                     try:
                         await bot.send_message(chat_id=user.telegram_chat_id, text=message)
@@ -146,14 +178,11 @@ async def run_monitoring_cycle(storage: Storage, bot: Bot, status_json_url: str)
             current_status = extract_boyar_status(payload, user.address)
             last_status = user.last_status or STATUS_UNKNOWN
 
-            should_alert = last_status == STATUS_GREEN and current_status == STATUS_YELLOW
-            if should_alert:
-                message = (
-                    "⚠️ Node Status Check Required\n\n"
-                    f"Address: 0x{user.address}\n"
-                    f"Status: {current_status}\n\n"
-                    "Check status:\n"
-                    "https://status.orbs.network"
+            if should_send_alert(last_status, current_status):
+                message = build_alert_message(
+                    address=user.address,
+                    last_status=last_status,
+                    current_status=current_status,
                 )
                 try:
                     await bot.send_message(chat_id=user.telegram_chat_id, text=message)

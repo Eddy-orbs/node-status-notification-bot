@@ -1,6 +1,6 @@
 # node-status-notification-bot
 
-A Python Telegram monitoring bot. It periodically checks the `Boyar` status for registered Ethereum addresses (or, in manager mode, for all nodes) and sends a notification only when a status changes from **Green → Yellow**.
+A Python Telegram monitoring bot. It periodically checks the node status for registered Ethereum addresses (or, in manager mode, for all nodes) and sends a notification when a status changes from **Green → Yellow** or **Yellow → Green**.
 
 ## Features
 
@@ -20,7 +20,8 @@ A Python Telegram monitoring bot. It periodically checks the `Boyar` status for 
 - Scheduled checks:
   - Default interval: **1800 seconds (30 minutes)**
   - Fetches `STATUS_JSON_URL` **once per cycle** and reuses the payload for all active users
-  - **Green → Yellow** transitions trigger Telegram alerts
+  - **Green → Yellow** transitions trigger warning alerts
+  - **Yellow → Green** transitions trigger recovery alerts
   - Other changes update baselines without notifying
   - Missing paths or addresses are handled safely as `UNKNOWN`
 

@@ -277,7 +277,7 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text=(
                 "All-node monitoring has been resumed.\n\n"
                 "Current node states have been saved as baseline.\n"
-                "You will be notified when any Boyar status changes from Green to Yellow."
+                "You will be notified when any Node status changes between Green and Yellow."
             ),
         )
         return
@@ -394,7 +394,7 @@ async def monitor_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             text=(
                 "All-node monitoring has been enabled.\n\n"
                 "Current node states have been saved as baseline.\n"
-                "You will be notified when any Boyar status changes from Green to Yellow."
+                "You will be notified when any Node status changes between Green and Yellow."
             ),
         )
         return
@@ -494,6 +494,6 @@ async def monitor_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         text=(
             "All-node monitoring has been disabled.\n\n"
             "Single-address monitoring is now active again.\n"
-            f"Current Boyar status: {baseline}"
+            f"Current Node status: {baseline}"
         ),
     )
