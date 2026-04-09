@@ -176,7 +176,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         text=(
             "Address has been registered.\n"
             f"Address: {address}\n"
-            f"Current Node status (baseline): {baseline_status}\n"
+            f"Current Node status (baseline): {format_status_for_display(baseline_status)}\n"
             "No alert is sent immediately after registration."
         ),
     )
