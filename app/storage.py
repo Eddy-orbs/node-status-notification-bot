@@ -319,6 +319,23 @@ class Storage:
             ).fetchall()
         return {row["node_address"]: row["last_status"] for row in rows}
 
+    def get_latest_manager_state_for_node(self, node_address: str) -> str | None:
+        """Most recent last_status for this node across all manager snapshots, if any."""
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT last_status
+                FROM manager_monitor_states
+                WHERE node_address = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (node_address,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row["last_status"]
+
     def replace_manager_states(self, user_id: int, states: dict[str, str]) -> None:
         timestamp = now_iso()
         with self._conn() as conn:

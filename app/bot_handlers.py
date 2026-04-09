@@ -6,7 +6,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.models import MODE_MANAGER_ALL, STATUS_UNKNOWN, is_valid_normalized_address, normalize_address
-from app.monitor_service import extract_all_node_statuses, extract_boyar_status, fetch_status_json
+from app.monitor_service import (
+    extract_all_node_statuses,
+    extract_boyar_status,
+    fetch_status_json,
+    process_fetched_status_json,
+)
 from app.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -85,23 +90,59 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         address,
     )
 
-    payload = await fetch_status_json(status_json_url)
+    chat_id = update.effective_chat.id
+
     baseline_status = STATUS_UNKNOWN
     address_exists = False
-    if payload is not None:
+    payload: dict | None = None
+
+    try:
+        cached_status = storage.get_latest_manager_state_for_node(address)
+    except Exception as exc:
+        logger.exception(
+            "Failed to read manager_monitor_states before /set address chat_id=%s: %s",
+            chat_id,
+            exc,
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="An error occurred while saving. Please try again in a moment.",
+        )
+        return
+
+    if cached_status is not None:
+        address_exists = True
+        baseline_status = cached_status
+        logger.info(
+            "/set address: hit manager_monitor_states for chat_id=%s address=%s baseline=%s",
+            chat_id,
+            address,
+            baseline_status,
+        )
+    else:
+        payload = await fetch_status_json(status_json_url)
+        if payload is None:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "Unable to fetch the current Orbs status data.\n"
+                    "Please try again in about 5 minutes."
+                ),
+            )
+            return
         address_exists = _address_exists_in_registered_nodes(payload, address)
         baseline_status = extract_boyar_status(payload, address)
 
     try:
         storage.upsert_user_address(
-            telegram_chat_id=update.effective_chat.id,
+            telegram_chat_id=chat_id,
             telegram_user_id=update.effective_user.id,
             username=update.effective_user.username,
             address=address,
             baseline_status=baseline_status,
         )
         if not address_exists:
-            storage.stop_monitoring(update.effective_chat.id)
+            storage.stop_monitoring(chat_id)
     except Exception as exc:
         logger.exception("Failed to store user address: %s", exc)
         await context.bot.send_message(
@@ -109,6 +150,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             text="An error occurred while saving. Please try again in a moment.",
         )
         return
+
+    if payload is not None:
+        await process_fetched_status_json(storage, context.bot, payload)
 
     if not address_exists:
         await context.bot.send_message(
@@ -272,6 +316,8 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
 
+        await process_fetched_status_json(storage, context.bot, payload)
+
         await context.bot.send_message(
             chat_id=chat_id,
             text=(
@@ -290,13 +336,18 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     payload = await fetch_status_json(status_json_url)
-    baseline_status = STATUS_UNKNOWN
-    address_exists = False
-    if payload is not None:
-        address_exists = _address_exists_in_registered_nodes(payload, user.address)
-        baseline_status = extract_boyar_status(payload, user.address)
+    if payload is None:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Unable to fetch current status data. Please try again later.",
+        )
+        return
+
+    address_exists = _address_exists_in_registered_nodes(payload, user.address)
+    baseline_status = extract_boyar_status(payload, user.address)
 
     if not address_exists:
+        await process_fetched_status_json(storage, context.bot, payload)
         try:
             storage.stop_monitoring(chat_id)
         except Exception as exc:
@@ -333,6 +384,8 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text="No registered address found. Please register first with /set address 0x...",
         )
         return
+
+    await process_fetched_status_json(storage, context.bot, payload)
 
     await context.bot.send_message(
         chat_id=chat_id,
@@ -389,6 +442,8 @@ async def monitor_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
+        await process_fetched_status_json(storage, context.bot, payload)
+
         await context.bot.send_message(
             chat_id=chat_id,
             text=(
@@ -424,6 +479,8 @@ async def monitor_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             text="Unable to fetch current status data. Please try again later.",
         )
         return
+
+    await process_fetched_status_json(storage, context.bot, payload)
 
     saved_address = (user.address or "").strip()
     if not saved_address:

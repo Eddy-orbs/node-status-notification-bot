@@ -125,28 +125,35 @@ async def fetch_status_json(url: str) -> dict[str, Any] | None:
         return None
 
 
-async def run_monitoring_cycle(storage: Storage, bot: Bot, status_json_url: str) -> None:
+async def process_fetched_status_json(
+    storage: Storage, bot: Bot, payload: dict[str, Any]
+) -> None:
+    """
+    Run the same alert + manager_monitor_states sync as the scheduler interval,
+    using an already-fetched JSON payload (interval or command-triggered fetch).
+    """
     users = storage.list_active_users()
     if not users:
-        logger.debug("No active users, skipping cycle")
+        logger.debug("process_fetched_status_json: no active users, skipping")
         return
 
-    payload = await fetch_status_json(status_json_url)
-    if payload is None:
-        logger.warning("Skipping cycle due to missing payload")
+    current_states = extract_all_node_statuses(payload)
+    try:
+        previous_by_user = {u.id: storage.get_manager_states(u.id) for u in users}
+    except Exception as exc:
+        logger.exception("Failed to load manager_monitor_states snapshot: %s", exc)
         return
 
     for user in users:
         try:
-            if user.monitoring_mode == MODE_MANAGER_ALL:
-                previous_states = storage.get_manager_states(user.id)
-                current_states = extract_all_node_statuses(payload)
+            prev_map = previous_by_user[user.id]
 
+            if user.monitoring_mode == MODE_MANAGER_ALL:
                 send_aborted_user_blocked = False
                 for node_address, current_status in current_states.items():
                     if send_aborted_user_blocked:
                         break
-                    last_status = previous_states.get(node_address, STATUS_UNKNOWN)
+                    last_status = prev_map.get(node_address, STATUS_UNKNOWN)
                     if not should_send_alert(last_status, current_status):
                         continue
 
@@ -171,16 +178,18 @@ async def run_monitoring_cycle(storage: Storage, bot: Bot, status_json_url: str)
                         )
                         if _is_user_blocked_error(send_exc):
                             send_aborted_user_blocked = True
-
-                storage.replace_manager_states(user.id, current_states)
                 continue
 
-            current_status = extract_boyar_status(payload, user.address)
-            last_status = user.last_status or STATUS_UNKNOWN
+            saved_address = (user.address or "").strip()
+            if not saved_address:
+                continue
+
+            current_status = extract_boyar_status(payload, saved_address)
+            last_status = prev_map.get(saved_address, STATUS_UNKNOWN)
 
             if should_send_alert(last_status, current_status):
                 message = build_alert_message(
-                    address=user.address,
+                    address=saved_address,
                     last_status=last_status,
                     current_status=current_status,
                 )
@@ -189,7 +198,7 @@ async def run_monitoring_cycle(storage: Storage, bot: Bot, status_json_url: str)
                     logger.info(
                         "Alert sent: chat_id=%s address=%s %s->%s",
                         user.telegram_chat_id,
-                        user.address,
+                        saved_address,
                         last_status,
                         current_status,
                     )
@@ -199,3 +208,28 @@ async def run_monitoring_cycle(storage: Storage, bot: Bot, status_json_url: str)
             storage.update_last_status(user.id, current_status)
         except Exception as user_exc:
             logger.exception("Monitoring failed for user id=%s: %s", user.id, user_exc)
+
+    for user in users:
+        try:
+            storage.replace_manager_states(user.id, current_states)
+        except Exception as exc:
+            logger.exception(
+                "Failed to sync manager_monitor_states for user id=%s: %s",
+                user.id,
+                exc,
+            )
+
+
+async def run_monitoring_cycle(storage: Storage, bot: Bot, status_json_url: str) -> None:
+    if not storage.list_active_users():
+        logger.debug("No active users, skipping cycle")
+        return
+
+    payload = await fetch_status_json(status_json_url)
+    if payload is None:
+        logger.warning(
+            "Skipping cycle: status JSON fetch failed; no alerts and no manager_monitor_states sync"
+        )
+        return
+
+    await process_fetched_status_json(storage, bot, payload)
