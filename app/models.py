@@ -11,6 +11,16 @@ ETH_ADDRESS_KEY_RE = re.compile(r"^[a-f0-9]{40}$")
 STATUS_GREEN = "Green"
 STATUS_YELLOW = "Yellow"
 STATUS_UNKNOWN = "UNKNOWN"
+
+
+def format_status_for_display(status: str) -> str:
+    """Prefix Green/Yellow with emoji for user-facing messages."""
+    s = (status or "").strip()
+    if s == STATUS_GREEN:
+        return f"✅ {s}"
+    if s == STATUS_YELLOW:
+        return f"⚠️ {s}"
+    return s
 MODE_SINGLE = "single"
 MODE_MANAGER_ALL = "manager_all"
 MODE_OFF = "off"

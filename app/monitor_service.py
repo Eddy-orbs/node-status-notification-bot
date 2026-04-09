@@ -7,7 +7,13 @@ import httpx
 from telegram import Bot
 from telegram.error import Forbidden
 
-from app.models import MODE_MANAGER_ALL, STATUS_GREEN, STATUS_UNKNOWN, STATUS_YELLOW
+from app.models import (
+    MODE_MANAGER_ALL,
+    STATUS_GREEN,
+    STATUS_UNKNOWN,
+    STATUS_YELLOW,
+    format_status_for_display,
+)
 from app.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -90,10 +96,10 @@ def build_alert_message(
 ) -> str:
     if last_status == STATUS_GREEN and current_status == STATUS_YELLOW:
         title = "⚠️ Node Status Alert"
-        summary = "Server status changed to Yellow."
+        summary = f"Server status changed to {format_status_for_display(STATUS_YELLOW)}."
     else:
         title = "✅ Node Status Recovered"
-        summary = "Server status recovered to Green."
+        summary = f"Server status recovered to {format_status_for_display(STATUS_GREEN)}."
 
     lines = [title, "", summary]
     if monitoring_mode is not None:
@@ -101,7 +107,8 @@ def build_alert_message(
     lines.extend(
         [
             f"Address: 0x{address}",
-            f"Status Change: {last_status} → {current_status}",
+            "Status Change: "
+            f"{format_status_for_display(last_status)} → {format_status_for_display(current_status)}",
             "",
             "Check status:",
             "https://status.orbs.network",

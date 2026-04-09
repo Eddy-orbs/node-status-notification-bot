@@ -5,7 +5,13 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from app.models import MODE_MANAGER_ALL, STATUS_UNKNOWN, is_valid_normalized_address, normalize_address
+from app.models import (
+    MODE_MANAGER_ALL,
+    STATUS_UNKNOWN,
+    format_status_for_display,
+    is_valid_normalized_address,
+    normalize_address,
+)
 from app.monitor_service import (
     extract_all_node_statuses,
     extract_boyar_status,
@@ -242,7 +248,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     mode_label = "All Nodes" if user.monitoring_mode == MODE_MANAGER_ALL else "Single Address"
     monitoring_label = "ON" if user.monitoring_enabled else "OFF"
-    last_status = "N/A" if not user.last_status or user.last_status == STATUS_UNKNOWN else user.last_status
+    raw_last = user.last_status if user.last_status else ""
+    if not raw_last or raw_last == STATUS_UNKNOWN:
+        last_status_line = "Last Status: N/A"
+    else:
+        last_status_line = f"Last Status: {format_status_for_display(raw_last)}"
     display_address = f"0x{user.address}" if user.address else "(not set)"
 
     if user.monitoring_mode == MODE_MANAGER_ALL:
@@ -261,7 +271,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"Monitoring Mode: {mode_label}\n"
             f"Address: {display_address}\n"
             f"Monitoring: {monitoring_label}\n"
-            f"Last Status: {last_status}"
+            f"{last_status_line}"
         ),
     )
 
