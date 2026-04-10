@@ -112,6 +112,9 @@ def build_alert_message(
             "",
             "Check status:",
             "https://status.orbs.network",
+            "",
+            "Troubleshooting guide:",
+            "https://orbs-doc.gitbook.io/orbs-guardian-help/en",
         ]
     )
     return "\n".join(lines)
